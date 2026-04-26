@@ -2299,7 +2299,7 @@ function renderDeadline(sec) {
     const y = parts[1] || '';
     const m = parts[2] || '';
     const d = parts[3] || '';
-    const years = Array.from({length:11},(_,i)=>2020+i).map(v=>`<option value="${v}" ${v==y?'selected':''}>${v}</option>`).join('');
+    const years = Array.from({length:11},(_,i)=>2030-i).map(v=>`<option value="${v}" ${v==y?'selected':''}>${v}</option>`).join('');
     const months = Array.from({length:12},(_,i)=>String(i+1).padStart(2,'0')).map(v=>`<option value="${v}" ${v==m?'selected':''}>${v}</option>`).join('');
     const days = Array.from({length:31},(_,i)=>String(i+1).padStart(2,'0')).map(v=>`<option value="${v}" ${v==d?'selected':''}>${v}</option>`).join('');
     existing.innerHTML = `<span style="font-size:13px;color:var(--text2);margin-right:6px">Data Collection Date:</span>
@@ -2576,7 +2576,7 @@ function canEditAtt() {
 
 async function initAttendanceView() {
   const { data } = await db.from('attendance_rows').select('fy').order('fy');
-  const fys = [...new Set((data||[]).map(r=>r.fy))].sort();
+  const fys = [...new Set((data||[]).map(r=>r.fy))].sort().reverse();
   attState.fys = fys;
   const sel = document.getElementById('att-fy-select');
   sel.innerHTML = '<option value="">— Select FY —</option>' + fys.map(f=>`<option value="${f}">${f}</option>`).join('');
@@ -2602,7 +2602,7 @@ async function saveAttFy() {
   const rows = Array.from({length:10}, (_,i) => ({fy, row_order:i+1}));
   await db.from('attendance_rows').insert(rows);
   attState.fys.push(fy);
-  attState.fys.sort();
+  attState.fys.sort().reverse();
   const sel = document.getElementById('att-fy-select');
   sel.innerHTML = '<option value="">— Select FY —</option>' + attState.fys.map(f=>`<option value="${f}">${f}</option>`).join('');
   sel.value = fy;
@@ -2977,12 +2977,12 @@ const AWARD_DEBOUNCE = {};
 
 async function initAwardView() {
   const { data } = await db.from('global_award').select('fy').order('fy');
-  const fys = [...new Set((data||[]).map(r=>r.fy))].sort();
+  const fys = [...new Set((data||[]).map(r=>r.fy))].sort().reverse();
   awardState.fys = fys;
   const sel = document.getElementById('award-fy-select');
   sel.innerHTML = '<option value="">— Select FY —</option>' + fys.map(f=>`<option value="${f}">${f}</option>`).join('');
   if (fys.length > 0) {
-    const latest = fys[fys.length-1];
+    const latest = fys[0];
     sel.value = latest;
     await loadAwardData(latest);
   } else {
@@ -2997,7 +2997,7 @@ async function saveAwardFy() {
   const rows = Array.from({length:20},(_,i)=>({fy, row_order:i+1}));
   await db.from('global_award').insert(rows);
   awardState.fys.push(fy);
-  awardState.fys.sort();
+  awardState.fys.sort().reverse();
   const sel = document.getElementById('award-fy-select');
   sel.innerHTML = '<option value="">— Select FY —</option>' + awardState.fys.map(f=>`<option value="${f}">${f}</option>`).join('');
   sel.value = fy;
