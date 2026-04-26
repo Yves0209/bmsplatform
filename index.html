@@ -450,6 +450,7 @@ tr:hover td{background:#fafafa}
 .patent-chart-card .chart-body{flex:1;position:relative;padding:8px 16px 12px;min-height:0}
 .patent-sum-row td{font-weight:700;background:var(--surface2);border-top:2px solid var(--border)}
 .patent-sum-row input{font-weight:700!important}
+.patent-deadline-bar{display:flex;align-items:center;padding:8px 14px;min-height:36px}
 .patent-row-actions{display:flex;gap:6px;padding:10px 14px}
 .patent-row-actions .btn{flex:1;justify-content:center}
 
@@ -1016,15 +1017,19 @@ async function handleLogin() {
   const pwd = document.getElementById('login-pwd').value;
   if (!code) return showAlert('login-alert', 'Please enter your IT Code');
   if (!pwd) return showAlert('login-alert', 'Please enter your password');
-  const { data, error } = await db.from('users').select('*').eq('it_code', code).single();
-  if (error || !data) return showAlert('login-alert', 'IT Code not found. Please request access first.');
-  if (data.status === 'pending') return showAlert('login-alert', 'Your request is pending approval.', 'warning');
-  if (data.status === 'rejected') return showAlert('login-alert', 'Your request was rejected. Please contact admin.');
-  const storedPwd = data.password || 'lenovosmb';
-  if (pwd !== storedPwd) return showAlert('login-alert', 'Incorrect password.');
-  currentUser = data;
-  await loadApprovedUsers();
-  enterApp();
+  try {
+    const { data, error } = await db.from('users').select('*').eq('it_code', code).single();
+    if (error || !data) return showAlert('login-alert', 'IT Code not found. Please request access first.');
+    if (data.status === 'pending') return showAlert('login-alert', 'Your request is pending approval.', 'warning');
+    if (data.status === 'rejected') return showAlert('login-alert', 'Your request was rejected. Please contact admin.');
+    const storedPwd = data.password || 'lenovosmb';
+    if (pwd !== storedPwd) return showAlert('login-alert', 'Incorrect password.');
+    currentUser = data;
+    await loadApprovedUsers();
+    enterApp();
+  } catch(e) {
+    showAlert('login-alert', 'Error: ' + e.message);
+  }
 }
 async function handleReg() {
   const code = document.getElementById('reg-code').value.trim().toLowerCase();
@@ -2189,8 +2194,12 @@ async function loadPatentData(sec, fy) {
   patentState[sec].fy = fy;
   document.getElementById(`fy-input-${sec}`).value = fy;
   document.getElementById(`patent-table-wrap-${sec}`).innerHTML = '<div class="spinner"></div>';
-  const { data } = await db.from('patent_data').select('*').eq('fy', fy).eq('section', sec).order('row_order');
+  const [{ data }, { data: meta }] = await Promise.all([
+    db.from('patent_data').select('*').eq('fy', fy).eq('section', sec).order('row_order'),
+    db.from('patent_meta').select('deadline').eq('section', sec).eq('fy', fy).maybeSingle()
+  ]);
   patentState[sec].rows = data || [];
+  patentState[sec].deadline = meta?.deadline || '';
   renderPatentTable(sec, patentState[sec].rows);
   renderCharts(sec, patentState[sec].rows);
 }
@@ -2266,7 +2275,56 @@ function renderPatentTable(sec, rows) {
     </div>`;
   }
   document.getElementById(`patent-table-wrap-${sec}`).innerHTML = html;
+  renderDeadline(sec);
 }
+
+function renderDeadline(sec) {
+  const wrap = document.getElementById(`patent-table-wrap-${sec}`);
+  if (!wrap) return;
+  const fy = patentState[sec].fy;
+  const deadline = patentState[sec].deadline || '';
+  const canEdit = isPatentAdmin();
+
+  let existing = wrap.querySelector('.patent-deadline-bar');
+  if (!existing) {
+    existing = document.createElement('div');
+    existing.className = 'patent-deadline-bar';
+    const rowActions = wrap.querySelector('.patent-row-actions');
+    if (rowActions) wrap.insertBefore(existing, rowActions);
+    else wrap.appendChild(existing);
+  }
+
+  if (canEdit) {
+    const parts = deadline.match(/^(\d{4})-(\d{2})-(\d{2})$/) || [];
+    const y = parts[1] || '';
+    const m = parts[2] || '';
+    const d = parts[3] || '';
+    const years = Array.from({length:11},(_,i)=>2020+i).map(v=>`<option value="${v}" ${v==y?'selected':''}>${v}</option>`).join('');
+    const months = Array.from({length:12},(_,i)=>String(i+1).padStart(2,'0')).map(v=>`<option value="${v}" ${v==m?'selected':''}>${v}</option>`).join('');
+    const days = Array.from({length:31},(_,i)=>String(i+1).padStart(2,'0')).map(v=>`<option value="${v}" ${v==d?'selected':''}>${v}</option>`).join('');
+    existing.innerHTML = `<span style="font-size:13px;color:var(--text2);margin-right:6px">Data Collection Date:</span>
+      <select id="dl-y-${sec}" style="font-size:13px;padding:2px 4px;border-radius:5px;border:1px solid var(--border)"><option value="">Year</option>${years}</select>-<select id="dl-m-${sec}" style="font-size:13px;padding:2px 4px;border-radius:5px;border:1px solid var(--border)"><option value="">MM</option>${months}</select>-<select id="dl-d-${sec}" style="font-size:13px;padding:2px 4px;border-radius:5px;border:1px solid var(--border)"><option value="">DD</option>${days}</select>
+      <button class="btn btn-primary btn-sm" style="margin-left:8px;padding-left:8px;padding-right:8px;min-width:0;width:auto" onclick="saveDeadline('${sec}')">Save</button>`;
+  } else {
+    existing.innerHTML = deadline
+      ? `<span style="font-size:13px;color:var(--text2)">Data Collection Date: <strong style="color:var(--text)">${deadline}</strong></span>`
+      : '';
+  }
+}
+
+async function saveDeadline(sec) {
+  const fy = patentState[sec].fy;
+  if (!fy) return;
+  const y = document.getElementById(`dl-y-${sec}`)?.value;
+  const m = document.getElementById(`dl-m-${sec}`)?.value;
+  const d = document.getElementById(`dl-d-${sec}`)?.value;
+  if (!y || !m || !d) return;
+  const val = `${y}-${m}-${d}`;
+  await db.from('patent_meta').upsert({ section: sec, fy, deadline: val }, { onConflict: 'section,fy' });
+  patentState[sec].deadline = val;
+  renderDeadline(sec);
+}
+
 
 function resizePatentCharts() {
   ['ipp','fil'].forEach(sec => {
